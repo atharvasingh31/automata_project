@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mealy ⇄ Moore Converter</title>
+<style>
+  :root{
+    --bg:#0b0f17; --panel:#111823; --panel2:#0d131c; --line:#1f2937;
+    --text:#d7dee9; --muted:#8793a5; --blue:#5bb4e5; --purple:#c084fc; --red:#f06b6b; --green:#4ade80;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;padding:32px 34px 50px}
+  h1{margin:0;font-size:22px;letter-spacing:.5px;color:#fff}
+  .sub{color:var(--muted);margin:4px 0 18px}
+  .modes{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:18px}
+  .modes button{background:var(--panel);color:var(--muted);border:0;padding:9px 16px;font:inherit;cursor:pointer}
+  .modes button.active{background:var(--blue);color:#06202e;font-weight:700}
+  .layout{display:grid;grid-template-columns:370px 1fr;gap:22px;align-items:start}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .panel.pad{padding:18px 20px}
+  .ph{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);color:var(--muted)}
+  .ph b{font-weight:400;color:var(--text)}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px}
+  .title{color:var(--muted);padding-bottom:10px;border-bottom:1px solid var(--line);margin-bottom:14px}
+  label{display:block;color:var(--muted);font-family:system-ui,sans-serif;font-size:12.5px;margin:12px 0 6px}
+  input[type=text]{width:100%;background:var(--panel2);border:1px solid var(--line);color:#fff;border-radius:6px;padding:9px 10px;font:inherit}
+  input[type=text]:focus{outline:1px solid var(--blue)}
+  .row{display:grid;grid-template-columns:repeat(4,1fr) 18px;gap:6px;margin-bottom:6px;align-items:center}
+  .row.moore{grid-template-columns:repeat(3,1fr) 18px}
+  .row.moore .o{display:none}
+  .row input{padding:7px 8px}
+  .hdr{display:grid;grid-template-columns:repeat(4,1fr) 18px;gap:6px;font-size:11px;color:var(--muted);margin-bottom:4px}
+  .hdr.moore{grid-template-columns:repeat(3,1fr) 18px}
+  .hdr.moore .o{display:none}
+  .x{color:var(--red);cursor:pointer;background:none;border:0;font:inherit;padding:0}
+  .btns{display:flex;gap:8px;margin:12px 0}
+  .btn{background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:7px 11px;border-radius:6px;font:inherit;cursor:pointer}
+  .btn:hover{border-color:var(--blue)}
+  .primary{background:var(--blue);border-color:var(--blue);color:#06202e;font-weight:700;padding:9px 16px}
+  .note{color:var(--muted);line-height:1.6;margin-top:14px}
+  .err{color:var(--red);margin-top:10px;white-space:pre-wrap}
+  .outrow{display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center;margin-bottom:6px}
+  .right{display:grid;gap:22px}
+  .graphs{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  svg{width:100%;height:310px;display:block;cursor:grab;touch-action:none;user-select:none}
+  svg:active{cursor:grabbing}
+  .zb{display:inline-flex;gap:4px;margin-left:10px;vertical-align:middle}
+  .zbtn{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:5px;padding:2px 8px;font:inherit;cursor:pointer}
+  .zbtn:hover{border-color:var(--blue)}
+  .hint{color:var(--muted);font-size:11px;padding:0 16px 8px;margin-top:-6px}
+  .steps{padding:6px 20px 14px;max-height:280px;overflow:auto}
+  .step{padding:10px 0;border-bottom:1px dashed var(--line)}
+  .s{color:var(--blue)} .t{color:var(--purple)} .w{color:#fff;font-weight:700}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:7px 10px;border:1px solid var(--line)}
+  th{color:var(--muted);font-weight:400}
+  .tbl{padding:0 20px 20px}
+  @media(max-width:1000px){.layout{grid-template-columns:1fr}.graphs{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<h1 id="ttl">Mealy → Moore Conversion</h1>
+<div class="sub" id="sub">Split each state by its incoming outputs, step by step</div>
+
+<div class="modes">
+  <button id="m1" class="active">Mealy → Moore</button>
+  <button id="m2">Moore → Mealy</button>
+</div>
+
+<div class="layout">
+  <div class="panel pad">
+    <div class="title" id="lt">Define the Mealy machine</div>
+    <label>States (comma separated)</label><input type="text" id="states">
+    <label>Alphabet (comma separated)</label><input type="text" id="alpha">
+    <label>Start state</label><input type="text" id="start">
+    <div id="outsBox" style="display:none">
+      <label>State outputs (Moore)</label>
+      <div id="outs"></div>
+    </div>
+    <label>Transitions <span id="tfmt">(from, symbol, to, output)</span></label>
+    <div class="hdr" id="hdr"><span>from</span><span>sym</span><span>to</span><span class="o">out</span><span></span></div>
+    <div id="rows"></div>
+    <div class="btns">
+      <button class="btn" id="add">+ add transition</button>
+      <button class="btn" id="ex">load example</button>
+    </div>
+    <button class="btn primary" id="conv">Convert</button>
+    <div class="err" id="err"></div>
+    <div class="note" id="note"></div>
+  </div>
+
+  <div class="right">
+    <div class="graphs">
+      <div class="panel">
+        <div class="ph"><span><span class="dot" style="background:var(--blue)"></span><b id="g1t">Mealy machine</b></span><span><span id="g1c"></span><span class="zb"><button class="zbtn" data-t="g1" data-a="out">−</button><button class="zbtn" data-t="g1" data-a="in">+</button><button class="zbtn" data-t="g1" data-a="reset">reset</button></span></span></div>
+        <svg id="g1"></svg>
+        <div class="hint">drag states · drag background to pan · scroll to zoom</div>
+      </div>
+      <div class="panel">
+        <div class="ph"><span><span class="dot" style="background:var(--purple)"></span><b id="g2t">Moore machine (result)</b></span><span><span id="g2c"></span><span class="zb"><button class="zbtn" data-t="g2" data-a="out">−</button><button class="zbtn" data-t="g2" data-a="in">+</button><button class="zbtn" data-t="g2" data-a="reset">reset</button></span></span></div>
+        <svg id="g2"></svg>
+        <div class="hint">drag states · drag background to pan · scroll to zoom</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><b>Construction steps</b></div>
+      <div class="steps" id="steps"></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><b id="tt">Resulting Moore transition + output table</b></div>
+      <div class="tbl" id="tbl"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+const list = s => s.split(',').map(x=>x.trim()).filter(Boolean);
+
+const examples = {
+  mealy:{states:'A, B',alpha:'0, 1',start:'A',
+    trans:[['A','0','B','1'],['A','1','A','0'],['B','0','A','0'],['B','1','B','1']]},
+  moore:{states:'A, B, C',alpha:'0, 1',start:'A',outs:{A:'0',B:'1',C:'0'},
+    trans:[['A','0','B',''],['A','1','A',''],['B','0','C',''],['B','1','A',''],['C','0','A',''],['C','1','B','']]}
+};
+let mode='mealy', trans=[], outs={};
+
+function setMode(m){
+  mode=m;
+  $('m1').classList.toggle('active',m==='mealy'); $('m2').classList.toggle('active',m==='moore');
+  const mealy=m==='mealy';
+  $('ttl').textContent = mealy?'Mealy → Moore Conversion':'Moore → Mealy Conversion';
+  $('sub').textContent = mealy?'Split each state by its incoming outputs, step by step':'Attach each state’s output to every transition entering it';
+  $('lt').textContent = mealy?'Define the Mealy machine':'Define the Moore machine';
+  $('tfmt').textContent = mealy?'(from, symbol, to, output)':'(from, symbol, to)';
+  $('g1t').textContent = mealy?'Mealy machine':'Moore machine';
+  $('g2t').textContent = mealy?'Moore machine (result)':'Mealy machine (result)';
+  $('tt').textContent = mealy?'Resulting Moore transition + output table':'Resulting Mealy transition table (next / output)';
+  $('outsBox').style.display = mealy?'none':'block';
+  $('hdr').classList.toggle('moore',!mealy);
+  $('note').innerHTML = mealy
+    ? 'Note: the Moore machine’s start state always gets a dedicated “start / -” node, since a Moore machine’s output is tied to being <i>in</i> a state, and no output has been produced yet before the first input symbol is read.'
+    : 'Note: a Mealy machine has no output before the first input symbol, so the Moore start-state output λ(start) is dropped. Every transition (q, a) → p gets output λ(p).';
+  loadExample();
+}
+function loadExample(){
+  const e=examples[mode];
+  $('states').value=e.states; $('alpha').value=e.alpha; $('start').value=e.start;
+  trans=e.trans.map(t=>({from:t[0],sym:t[1],to:t[2],out:t[3]}));
+  outs=Object.assign({},e.outs||{});
+  renderRows(); renderOuts(); convert();
+}
+function renderRows(){
+  const box=$('rows'); box.innerHTML='';
+  trans.forEach((t,i)=>{
+    const r=document.createElement('div'); r.className='row'+(mode==='moore'?' moore':'');
+    ['from','sym','to','out'].forEach(k=>{
+      const inp=document.createElement('input'); inp.type='text'; inp.value=t[k];
+      if(k==='out') inp.className='o';
+      inp.oninput=()=>{t[k]=inp.value.trim(); drawInput();};
+      r.appendChild(inp);
+    });
+    const x=document.createElement('button'); x.className='x'; x.textContent='×';
+    x.onclick=()=>{trans.splice(i,1); renderRows(); drawInput();};
+    r.appendChild(x); box.appendChild(r);
+  });
+}
+function renderOuts(){
+  if(mode!=='moore') return;
+  const box=$('outs'); box.innerHTML='';
+  list($('states').value).forEach(s=>{
+    const d=document.createElement('div'); d.className='outrow';
+    d.innerHTML=`<span class="s">${esc(s)}</span>`;
+    const inp=document.createElement('input'); inp.type='text'; inp.placeholder='output'; inp.value=outs[s]??'';
+    inp.oninput=()=>{outs[s]=inp.value.trim(); drawInput();};
+    d.appendChild(inp); box.appendChild(d);
+  });
+}
+function machine(){
+  return {states:list($('states').value),alpha:list($('alpha').value),start:$('start').value.trim(),
+    trans:trans.filter(t=>t.from&&t.sym&&t.to),outs};
+}
+function validate(m){
+  const e=[];
+  if(!m.states.length) e.push('Enter at least one state.');
+  if(!m.states.includes(m.start)) e.push('Start state must be one of the states.');
+  m.trans.forEach(t=>{
+    if(!m.states.includes(t.from)||!m.states.includes(t.to)) e.push(`Unknown state in transition ${t.from}, ${t.sym} → ${t.to}`);
+    if(!m.alpha.includes(t.sym)) e.push(`Symbol “${t.sym}” not in alphabet`);
+    if(mode==='mealy'&&t.out==='') e.push(`Transition ${t.from}, ${t.sym} needs an output`);
+  });
+  if(mode==='moore') m.states.forEach(s=>{ if((m.outs[s]??'')==='') e.push(`State ${s} needs an output`); });
+  return e;
+}
+
+/* ---------- graph drawing ---------- */
+function mergeEdges(edges){
+  const map=new Map();
+  edges.forEach(e=>{const k=e.from+'\u0001'+e.to; if(!map.has(k)) map.set(k,{from:e.from,to:e.to,labels:[]}); map.get(k).labels.push(e.label);});
+  return [...map.values()].map(e=>({from:e.from,to:e.to,label:e.labels.join(', ')}));
+}
+function drawGraph(svg,nodes,edges,color){
+  const W=560,H=310,R=26;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const G=svg.__g||(svg.__g={pos:{},view:{x:0,y:0,k:1},key:''});
+  G.args=[nodes,edges,color];
+  const n=nodes.length, cx=W/2, cy=H/2;
+  const rad=Math.min(W,H)/2-60;
+  const key=nodes.map(x=>x.id).join('|');
+  if(G.key!==key){
+    G.key=key; G.pos={};
+    nodes.forEach((nd,i)=>{
+      if(n===1) G.pos[nd.id]={x:cx,y:cy};
+      else if(n===2) G.pos[nd.id]={x:cx+(i?1:-1)*110,y:cy};
+      else {const a=-Math.PI/2+2*Math.PI*i/n; G.pos[nd.id]={x:cx+Math.cos(a)*rad*1.25,y:cy+Math.sin(a)*rad};}
+    });
+  }
+  const pos=G.pos;
+  const me=mergeEdges(edges);
+  const has=new Set(me.map(e=>e.from+'\u0001'+e.to));
+  let h=`<defs><marker id="ar${color.slice(1)}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="${color}"/></marker></defs>`;
+  const mk=`url(#ar${color.slice(1)})`;
+  me.forEach(e=>{
+    const a=pos[e.from], b=pos[e.to]; if(!a||!b) return;
+    if(e.from===e.to){
+      let ux=a.x-cx, uy=a.y-cy; let l=Math.hypot(ux,uy); if(l<1){ux=0;uy=-1;} else {ux/=l;uy/=l;}
+      const px=-uy, py=ux;
+      const s={x:a.x+(ux*Math.cos(.55)-uy*Math.sin(.55))*R,y:a.y+(ux*Math.sin(.55)+uy*Math.cos(.55))*R};
+      const t={x:a.x+(ux*Math.cos(-.55)-uy*Math.sin(-.55))*R,y:a.y+(ux*Math.sin(-.55)+uy*Math.cos(-.55))*R};
+      const c1={x:a.x+ux*R*3+px*R*1.2,y:a.y+uy*R*3+py*R*1.2}, c2={x:a.x+ux*R*3-px*R*1.2,y:a.y+uy*R*3-py*R*1.2};
+      h+=`<path d="M${s.x},${s.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${t.x},${t.y}" fill="none" stroke="${color}" stroke-width="1.4" marker-end="${mk}"/>`;
+      h+=`<text x="${a.x+ux*R*2.7}" y="${a.y+uy*R*2.7}" fill="#cbd5e1" font-size="11" text-anchor="middle">${esc(e.label)}</text>`;
+    } else {
+      const dx=b.x-a.x, dy=b.y-a.y, d=Math.hypot(dx,dy)||1;
+      const bi=has.has(e.to+'\u0001'+e.from);
+      const off=bi?Math.min(40,d*.22):0;
+      const c={x:(a.x+b.x)/2+(-dy/d)*off, y:(a.y+b.y)/2+(dx/d)*off};
+      const d1=Math.hypot(c.x-a.x,c.y-a.y)||1, d2=Math.hypot(c.x-b.x,c.y-b.y)||1;
+      const s={x:a.x+(c.x-a.x)/d1*R,y:a.y+(c.y-a.y)/d1*R};
+      const t={x:b.x+(c.x-b.x)/d2*(R+3),y:b.y+(c.y-b.y)/d2*(R+3)};
+      h+=`<path d="M${s.x},${s.y} Q${c.x},${c.y} ${t.x},${t.y}" fill="none" stroke="${color}" stroke-width="1.4" marker-end="${mk}"/>`;
+      const mx=.25*s.x+.5*c.x+.25*t.x, my=.25*s.y+.5*c.y+.25*t.y;
+      const lw=e.label.length*6.5+8;
+      h+=`<rect x="${mx-lw/2}" y="${my-8}" width="${lw}" height="15" rx="3" fill="#111823"/>`;
+      h+=`<text x="${mx}" y="${my+3.5}" fill="#cbd5e1" font-size="11" text-anchor="middle">${esc(e.label)}</text>`;
+    }
+  });
+  nodes.forEach(nd=>{
+    const p=pos[nd.id];
+    if(nd.start){
+      h+=`<line x1="${p.x-R-34}" y1="${p.y}" x2="${p.x-R-2}" y2="${p.y}" stroke="${color}" stroke-width="1.6" marker-end="${mk}"/>`;
+    }
+    h+=`<g class="node" data-id="${esc(nd.id)}" style="cursor:move">`;
+    h+=`<circle cx="${p.x}" cy="${p.y}" r="${R}" fill="${nd.start?color+'33':'#0b0f17'}" stroke="${color}" stroke-width="2"/>`;
+    h+=`<text x="${p.x}" y="${p.y+4}" fill="#fff" font-size="12" font-weight="700" text-anchor="middle" style="pointer-events:none">${esc(nd.label)}</text></g>`;
+  });
+  const v=G.view;
+  svg.innerHTML=`<g transform="translate(${v.x},${v.y}) scale(${v.k})">${h}</g>`;
+}
+function redraw(svg){ if(svg.__g&&svg.__g.args) drawGraph(svg,...svg.__g.args); }
+function enableInteraction(svg){
+  let drag=null, pan=null;
+  const pt=e=>{const p=svg.createSVGPoint(); p.x=e.clientX; p.y=e.clientY; return p.matrixTransform(svg.getScreenCTM().inverse());};
+  svg.addEventListener('pointerdown',e=>{
+    const G=svg.__g; if(!G) return;
+    const p=pt(e), nd=e.target.closest&&e.target.closest('.node');
+    svg.setPointerCapture(e.pointerId);
+    if(nd) drag={id:nd.dataset.id};
+    else pan={sx:p.x,sy:p.y,vx:G.view.x,vy:G.view.y};
+  });
+  svg.addEventListener('pointermove',e=>{
+    const G=svg.__g; if(!G||(!drag&&!pan)) return;
+    const p=pt(e), v=G.view;
+    if(drag){ G.pos[drag.id]={x:(p.x-v.x)/v.k,y:(p.y-v.y)/v.k}; }
+    else { v.x=pan.vx+(p.x-pan.sx); v.y=pan.vy+(p.y-pan.sy); }
+    redraw(svg);
+  });
+  const end=()=>{drag=null;pan=null;};
+  svg.addEventListener('pointerup',end); svg.addEventListener('pointercancel',end);
+  svg.addEventListener('wheel',e=>{
+    e.preventDefault(); zoomAt(svg,e.deltaY<0?1.1:1/1.1,pt(e));
+  },{passive:false});
+}
+function zoomAt(svg,f,p){
+  const G=svg.__g; if(!G) return;
+  const v=G.view, k=Math.min(4,Math.max(.3,v.k*f)), r=k/v.k;
+  v.x=p.x-(p.x-v.x)*r; v.y=p.y-(p.y-v.y)*r; v.k=k; redraw(svg);
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('.zbtn'); if(!b) return;
+  const svg=$(b.dataset.t), G=svg.__g; if(!G) return;
+  if(b.dataset.a==='reset'){ G.view={x:0,y:0,k:1}; G.key=''; redraw(svg); }
+  else zoomAt(svg,b.dataset.a==='in'?1.25:.8,{x:280,y:155});
+});
+function drawInput(){
+  const m=machine();
+  if(mode==='mealy'){
+    drawGraph($('g1'),m.states.map(s=>({id:s,label:s,start:s===m.start})),
+      m.trans.map(t=>({from:t.from,to:t.to,label:`${t.sym}/${t.out}`})),'#5bb4e5');
+  } else {
+    drawGraph($('g1'),m.states.map(s=>({id:s,label:`${s}/${m.outs[s]??'?'}`,start:s===m.start})),
+      m.trans.map(t=>({from:t.from,to:t.to,label:t.sym})),'#5bb4e5');
+  }
+  $('g1c').textContent=m.states.length+' states';
+}
+
+/* ---------- conversions ---------- */
+function mealyToMoore(m){
+  const inc={}; m.states.forEach(s=>inc[s]=[]);
+  m.trans.forEach(t=>{ if(!inc[t.to].includes(t.out)) inc[t.to].push(t.out); });
+  const steps=[]; const nodes=[]; const edges=[]; const rows=[];
+  m.states.forEach(s=>steps.push(`incoming outputs into <span class="s">${esc(s)}</span> = <span class="t">{${inc[s].map(esc).join(', ')}}</span>`));
+  const startId=`${m.start}/-`;
+  steps.push(`start ⇒ dedicated state <span class="t">${esc(startId)}</span> (output undefined before first symbol)`);
+  const ids=[];
+  m.states.forEach(s=>inc[s].forEach(o=>ids.push({id:`${s}/${o}`,q:s,o})));
+  ids.push({id:startId,q:m.start,o:'-',start:true});
+  ids.forEach(st=>{
+    nodes.push({id:st.id,label:st.id,start:!!st.start});
+    const row={state:st.id,start:!!st.start,out:st.o,next:{}};
+    m.alpha.forEach(a=>{
+      const ts=m.trans.filter(t=>t.from===st.q&&t.sym===a);
+      if(!ts.length){row.next[a]='—';return;}
+      const t=ts[0]; const to=`${t.to}/${t.out}`;
+      row.next[a]=to; edges.push({from:st.id,to,label:a});
+      if(!st.start||true) steps.push(`<span class="s">${esc(st.id)}</span> on <span class="w">'${esc(a)}'</span> → <span class="t">${esc(to)}</span>`);
+    });
+    rows.push(row);
+  });
+  return {nodes,edges,steps,
+    head:['Moore state',...m.alpha.map(a=>'on '+a),'output'],
+    rows:rows.map(r=>[ (r.start?'→ ':'')+r.state, ...m.alpha.map(a=>r.next[a]), r.out ])};
+}
+function mooreToMealy(m){
+  const steps=[], edges=[], rows=[];
+  steps.push(`Mealy states = Moore states: <span class="s">${m.states.map(esc).join(', ')}</span>`);
+  steps.push(`start state stays <span class="s">${esc(m.start)}</span> (initial output λ(${esc(m.start)}) = ${esc(m.outs[m.start])} is dropped)`);
+  m.trans.forEach(t=>{
+    const o=m.outs[t.to];
+    edges.push({from:t.from,to:t.to,label:`${t.sym}/${o}`});
+    steps.push(`<span class="s">${esc(t.from)}</span> on <span class="w">'${esc(t.sym)}'</span> → <span class="t">${esc(t.to)}</span>, output = λ(${esc(t.to)}) = <span class="t">${esc(o)}</span>`);
+  });
+  m.states.forEach(s=>{
+    rows.push([(s===m.start?'→ ':'')+s,...m.alpha.map(a=>{
+      const t=m.trans.find(x=>x.from===s&&x.sym===a);
+      return t?`${t.to} / ${m.outs[t.to]}`:'—';
+    })]);
+  });
+  return {nodes:m.states.map(s=>({id:s,label:s,start:s===m.start})),edges,steps,
+    head:['Mealy state',...m.alpha.map(a=>'on '+a)],rows};
+}
+function convert(){
+  const m=machine(); const errs=validate(m);
+  $('err').textContent=errs.join('\n');
+  drawInput();
+  if(errs.length) return;
+  const r = mode==='mealy'?mealyToMoore(m):mooreToMealy(m);
+  drawGraph($('g2'),r.nodes,r.edges,'#c084fc');
+  $('g2c').textContent=r.nodes.length+' states';
+  $('steps').innerHTML=r.steps.map(s=>`<div class="step">${s}</div>`).join('');
+  $('tbl').innerHTML='<table><tr>'+r.head.map(h=>`<th>${esc(h)}</th>`).join('')+'</tr>'+
+    r.rows.map(row=>'<tr>'+row.map((c,i)=>`<td${mode==='mealy'&&i===row.length-1?' style="color:var(--purple)"':''}>${esc(c)}</td>`).join('')+'</tr>').join('')+'</table>';
+}
+
+$('m1').onclick=()=>setMode('mealy');
+$('m2').onclick=()=>setMode('moore');
+$('add').onclick=()=>{trans.push({from:'',sym:'',to:'',out:''}); renderRows();};
+$('ex').onclick=loadExample;
+$('conv').onclick=convert;
+['states','alpha','start'].forEach(id=>$(id).oninput=()=>{renderOuts(); drawInput();});
+enableInteraction($('g1')); enableInteraction($('g2'));
+setMode('mealy');
+</script>
+</body>
+</html>
